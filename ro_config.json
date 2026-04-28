@@ -1,0 +1,19 @@
+{
+    "monster_templates": [
+        "./assets/monsters/poring.png",
+        "./assets/monsters/fabre.png"
+    ],
+    "item_templates": [
+	"./assets/items/jellopy.png",
+        "./assets/items/empty_bottle.png",
+        "./assets/items/apple.png"
+    ],
+    "hp_threshold": 49,
+    "potion_key": "f1",
+    "attack_delay": 2.0,
+    "pickup_delay": 1.0,
+    "exploration_delay": 3.0,
+    "region": null,
+    "learning_mode": false,
+    "use_yolo": false
+}
