@@ -4,19 +4,18 @@
         "./assets/monsters/fabre.png"
     ],
     "item_templates": [
+        "./assets/items/jellopy.png",
         "./assets/items/empty_bottle.png",
         "./assets/items/apple.png"
     ],
-    "jellopy_template": "./assets/items/jellopy.png",
-    "hp_threshold": 49,
+    "hp_threshold": 50,
     "potion_key": "f1",
-    "attack_delay": 2.0,
+    "teleport_key": "f5",
+    "click_delay": 1.0,
+    "attack_delay": 1.0,
     "pickup_delay": 1.0,
     "exploration_delay": 3.0,
-    "jellopy_pickup_distance": 50,
-    "region": null,
-    "learning_mode": false,
-    "use_yolo": false,
+    "max_monster_distance": 300,
     "game_resolution": {
         "width": 1280,
         "height": 960,

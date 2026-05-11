@@ -3,3 +3,4 @@ numpy==1.24.3
 mss==9.0.1
 pydirectinput==1.0.2
 ultralytics==8.0.211
+pytesseract==0.3.10

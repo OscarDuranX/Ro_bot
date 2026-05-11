@@ -1,0 +1,37 @@
+{
+    "Jellopy": {
+        "lower": [90, 100, 80],
+        "upper": [130, 255, 255],
+        "color_name": "blue",
+        "enabled": true,
+        "priority": 1
+    },
+    "Carta": {
+        "lower": [15, 100, 100],
+        "upper": [45, 255, 255],
+        "color_name": "yellow",
+        "enabled": true,
+        "priority": 2
+    },
+    "Poción": {
+        "lower": [0, 150, 80],
+        "upper": [10, 255, 255],
+        "color_name": "red",
+        "enabled": true,
+        "priority": 3
+    },
+    "Empty_Bottle": {
+        "lower": [85, 100, 80],
+        "upper": [125, 255, 255],
+        "color_name": "cyan",
+        "enabled": true,
+        "priority": 4
+    },
+    "Apple": {
+        "lower": [170, 100, 100],
+        "upper": [10, 255, 255],
+        "color_name": "red_dark",
+        "enabled": true,
+        "priority": 5
+    }
+}

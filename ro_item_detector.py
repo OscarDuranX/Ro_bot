@@ -1,6 +1,6 @@
 """
-Detector especializado para items basado en color HSV.
-Detecta items dinámicamente según configuración en ro_items_config.json
+Detector dinámico de items configurables.
+Cada item tiene su propio rango HSV.
 """
 
 import cv2
@@ -11,19 +11,18 @@ import os
 
 
 class ROItemDetector:
-    def __init__(self, config_path="ro_items_config.json"):
+    def __init__(self, config_path='ro_items_config.json'):
         self.sct = mss.mss()
-        self.config_path = config_path
-        self.items_config = self._load_config()
-        
-        self.center_x = 640
-        self.center_y = 480
+        self.items_config = self.load_items_config(config_path)
+        self.min_contour_area = 50
+        self.max_contour_area = 2000
 
-    def _load_config(self):
+    def load_items_config(self, config_path):
         """Carga la configuración de items desde JSON."""
-        if os.path.exists(self.config_path):
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
                 return json.load(f)
+        print(f"Advertencia: No se encontró {config_path}")
         return {}
 
     def capture_screen(self, region=None):
@@ -36,149 +35,135 @@ class ROItemDetector:
         img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
 
-    def detect_items(self, frame, max_distance=200):
+    def detect_item_type(self, frame, item_name):
         """
-        Detecta todos los items configurados.
+        Detecta un tipo específico de item por su rango de color HSV.
         
         Args:
             frame: Imagen capturada
-            max_distance: Distancia máxima desde el centro (píxeles)
+            item_name: Nombre del item (debe estar en ro_items_config.json)
         
         Returns:
-            Lista de items detectados, ordenados por distancia
+            Lista de items detectados: [{'center': (x, y), 'confidence': 0.9}, ...]
         """
-        all_items = []
+        if item_name not in self.items_config:
+            return []
+        
+        item_config = self.items_config[item_name]
+        
+        if not item_config.get('enabled', True):
+            return []
+        
+        lower = np.array(item_config['lower'])
+        upper = np.array(item_config['upper'])
+        
+        # Convertir a HSV
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
-        for item_name, item_config in self.items_config.items():
-            if not item_config.get("enabled", True):
+        # Crear máscara
+        mask = cv2.inRange(hsv, lower, upper)
+        
+        # Operaciones morfológicas
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+        
+        # Encontrar contornos
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        items = []
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            
+            if area < self.min_contour_area or area > self.max_contour_area:
                 continue
             
-            lower = np.array(item_config.get("lower", [0, 0, 0]))
-            upper = np.array(item_config.get("upper", [180, 255, 255]))
+            x, y, w, h = cv2.boundingRect(contour)
+            center = (x + w // 2, y + h // 2)
             
-            mask = cv2.inRange(hsv, lower, upper)
+            # Calcular confianza basada en el área
+            confidence = min(area / self.max_contour_area, 1.0)
             
-            # Operaciones morfológicas
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-            
-            # Encontrar contornos
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                
-                # Filtrar por área (item mínimo 50px², máximo 2000px²)
-                if area < 50 or area > 2000:
-                    continue
-                
-                x, y, w, h = cv2.boundingRect(contour)
-                center_x = x + w // 2
-                center_y = y + h // 2
-                
-                # Calcular distancia desde centro de pantalla
-                distance = np.sqrt((center_x - self.center_x)**2 + (center_y - self.center_y)**2)
-                
-                if distance > max_distance:
-                    continue
-                
-                item = {
-                    "name": item_name,
-                    "x": x,
-                    "y": y,
-                    "w": w,
-                    "h": h,
-                    "center": (center_x, center_y),
-                    "distance": distance,
-                    "area": area,
-                    "confidence": 0.90,
-                    "priority": item_config.get("priority", 5)
-                }
-                
-                all_items.append(item)
+            items.append({
+                'center': center,
+                'confidence': confidence,
+                'x': x,
+                'y': y,
+                'w': w,
+                'h': h
+            })
         
-        # Eliminar duplicados (items muy cercanos)
-        all_items = self._remove_duplicates(all_items)
+        return items
+
+    def detect_all_items(self, frame):
+        """
+        Detecta todos los items configurados en la pantalla.
         
-        # Ordenar por prioridad (menor número = más prioritario), luego por distancia
-        all_items.sort(key=lambda x: (x['priority'], x['distance']))
+        Returns:
+            Dict con items encontrados y su información
+        """
+        all_items = {}
+        
+        for item_name in self.items_config:
+            items = self.detect_item_type(frame, item_name)
+            if items:
+                all_items[item_name] = items
         
         return all_items
 
-    def _remove_duplicates(self, items, threshold=20):
-        """Elimina detecciones duplicadas muy cercanas."""
+    def get_nearest_item_by_type(self, frame, item_name, center_x=640, center_y=480):
+        """
+        Obtiene el item más cercano de un tipo específico.
+        
+        Returns:
+            Dict con el item más cercano o None
+        """
+        items = self.detect_item_type(frame, item_name)
+        
         if not items:
-            return items
+            return None
         
-        filtered = []
+        # Calcular distancia desde el centro
         for item in items:
-            is_duplicate = False
-            for existing in filtered:
-                dist = np.sqrt((item['center'][0] - existing['center'][0])**2 + 
-                             (item['center'][1] - existing['center'][1])**2)
-                if dist < threshold:
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                filtered.append(item)
+            ix, iy = item['center']
+            distance = np.sqrt((ix - center_x)**2 + (iy - center_y)**2)
+            item['distance'] = distance
         
-        return filtered
+        # Retornar el más cercano
+        items.sort(key=lambda i: i['distance'])
+        return items[0]
 
-    def get_nearest_item(self, frame, max_distance=200):
-        """Retorna el item más cercano o None."""
-        items = self.detect_items(frame, max_distance)
-        
-        if items:
-            return items[0]
-        
-        return None
-
-    def get_items_by_name(self, frame, item_name, max_distance=200):
-        """Retorna todos los items de un tipo específico."""
-        items = self.detect_items(frame, max_distance)
-        return [item for item in items if item['name'] == item_name]
-
-    def debug_visualization(self, frame, items, output_path="debug_items.png"):
+    def debug_visualization(self, frame, output_path="debug_items.png"):
         """Crea imagen de debug mostrando items detectados."""
         debug_frame = frame.copy()
         
-        # Dibujar centro de pantalla
-        center = (self.center_x, self.center_y)
-        cv2.circle(debug_frame, center, 5, (0, 255, 0), -1)
-        cv2.circle(debug_frame, center, 200, (0, 255, 0), 2)
+        all_items = self.detect_all_items(frame)
         
-        # Colores para debug
-        colors = [
-            (0, 255, 0),    # Verde
-            (0, 165, 255),  # Naranja
-            (255, 0, 0),    # Azul
-            (255, 255, 0),  # Cyan
-            (255, 0, 255)   # Magenta
-        ]
+        colors = {
+            'Jellopy': (255, 0, 0),      # Azul
+            'Carta': (0, 255, 255),      # Amarillo
+            'Poción': (0, 0, 255),       # Rojo
+            'Empty_Bottle': (255, 255, 0),  # Cyan
+            'Apple': (0, 165, 255)       # Naranja
+        }
         
-        # Dibujar cada item
-        for i, item in enumerate(items):
-            x, y, w, h = item['x'], item['y'], item['w'], item['h']
-            center_item = item['center']
+        for item_name, items in all_items.items():
+            color = colors.get(item_name, (0, 255, 0))
             
-            color = colors[i % len(colors)]
-            
-            # Bounding box
-            cv2.rectangle(debug_frame, (x, y), (x+w, y+h), color, 2)
-            
-            # Centro
-            cv2.circle(debug_frame, center_item, 3, color, -1)
-            
-            # Línea hacia el centro
-            cv2.line(debug_frame, center, center_item, color, 1)
-            
-            # Etiqueta
-            label = f"{item['name']}#{i+1} D:{item['distance']:.0f}px"
-            cv2.putText(debug_frame, label, (x, y-5),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            for i, item in enumerate(items):
+                center = item['center']
+                x, y, w, h = item['x'], item['y'], item['w'], item['h']
+                
+                # Dibujar bounding box
+                cv2.rectangle(debug_frame, (x, y), (x+w, y+h), color, 2)
+                
+                # Dibujar centro
+                cv2.circle(debug_frame, center, 3, color, -1)
+                
+                # Etiqueta
+                label = f"{item_name} ({item['confidence']:.2f})"
+                cv2.putText(debug_frame, label, (x, y-5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
         
         cv2.imwrite(output_path, debug_frame)
         print(f"Debug items image saved: {output_path}")
@@ -193,12 +178,12 @@ if __name__ == "__main__":
     frame = detector.capture_screen()
     
     print("Detectando items...")
-    items = detector.detect_items(frame)
+    all_items = detector.detect_all_items(frame)
     
-    print(f"\n✓ Se encontraron {len(items)} items:")
-    for i, item in enumerate(items):
-        print(f"  #{i+1}: {item['name']} en ({item['center'][0]}, {item['center'][1]}), "
-              f"Distancia={item['distance']:.0f}px, Prioridad={item['priority']}")
+    print(f"\n✓ Items detectados:")
+    for item_name, items in all_items.items():
+        print(f"  {item_name}: {len(items)} encontrados")
+        for i, item in enumerate(items):
+            print(f"    #{i+1}: Posición={item['center']}, Confianza={item['confidence']:.2f}")
     
-    if items:
-        detector.debug_visualization(frame, items)
+    detector.debug_visualization(frame)
